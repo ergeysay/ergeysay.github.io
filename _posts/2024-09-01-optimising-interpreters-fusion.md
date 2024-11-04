@@ -1,6 +1,6 @@
 ---
 layout: post
-title:  "Optimizing Interpreters: Fusion"
+title:  "Optimising interpreters: fusion"
 date:   2024-09-01 00:00:00 +0000
 categories: plt
 ---
@@ -25,19 +25,17 @@ categories: plt
 
 Let me start with making an assumption that everyone has at some point in their life encountered a humble tree-walking interpreter. 
 
-Between older implementations of popular programming languages, expression evaluators embedded in user-facing tools, and home-grown almost-a-complete-Lisp interpreters, these can still be found everywhere. 
+Between older implementations of popular programming languages, expression evaluators embedded in user-facing tools, and home-grown almost-complete-Lisp interpreters, these can still be found everywhere. 
 
-This type of interpreter is considered to be the simplest - and the slowest one. Oftentimes you may see people rewriting their interpreters to a bytecode-based ones just to get a bit more performance.
+This type of interpreter is considered to be the simplest and the slowest one. Oftentimes, you may see people rewriting their interpreters to bytecode-based ones just to get a bit more performance.
 
 However, recently a project named [daScript](https://dascript.org/) (apparently [renamed to Daslang](https://borisbat.github.io/dascf-blog/2023/12/28/daslang-it-is/)) came into my attention. It is a very fast programming language, boasting one of the fastest interpreters I ever saw. 
 
 What is more interesting is that this interpreter is tree-based, and yet it still manages to outperform bytecode-based interpreters with ease.
 
-I got nerd-sniped and set out to investigate why is it so fast, and I found that it uses a pretty interesting optimization technique which authors call _fusion_. As always, it turned out that the idea has already been explored and is also known as [supernodes](https://kar.kent.ac.uk/93936/) or, in context of bytecode interpreters, as [superoperators](https://www2.cs.arizona.edu/~collberg/Teaching/553/2011/Resources/superops.pdf).
+I got nerd-sniped and set out to investigate why it is so fast, and I found that it uses a pretty interesting optimisation technique that authors call _fusion_. As always, it turned out that the idea has already been explored and is also known as [supernodes](https://kar.kent.ac.uk/93936/) or, in the context of bytecode interpreters, as [superoperators](https://www2.cs.arizona.edu/~collberg/Teaching/553/2011/Resources/superops.pdf).
 
-In this post, I will explain how it works by optimizing a tiny model tree-walking interpreter step-by-step. There will be a lot of benchmarks and you can find the [methodology](#appendix-methodology-of-benchmarks) at the end of this post.
-
-You can find the code [here](https://github.com/ergeysay/optimizing-interpreters-fusion).
+In this post, I will explain how it works by optimising a tiny model tree-walking interpreter step-by-step. There will be a lot of benchmarks, and you can find the [methodology](#appendix-methodology-of-benchmarks) at the end of this post.
 
 **Disclaimer:** this post borrows _heavily_ from the daScript implementation. All ideas I will explain here originally belong to daScript authors, and any mistakes you may find are mine. That said, the implementation is completely new and does not include daScript source in any form.
 
@@ -63,7 +61,7 @@ It may look simple, but it has a lot going on. Consider what an interpreter shou
 
 And this is what makes it a good model task: it is short and simple to implement in any language, and it is sufficiently complex at the same time to impose certain requirements on the environment it is being implemented in. 
 
-With this model in mind, let's consider what exactly we will be measuring. We only have most basic evaluation primitives in play - there is no memory management, no type checks, just *raw evaluation*, so we will be measuring just that - performance of evaluation primitives. The benchmark will say nothing about performance of each primitive used, but will be able to give us a rough impression on which approach performs better.
+With this model in mind, let's consider what exactly we will be measuring. We only have most basic evaluation primitives in play - there is no memory management, no type checks, just *raw evaluation*, so we will be measuring just that - performance of evaluation primitives. The benchmark will say nothing about the performance of each primitive used but will be able to give us a rough impression of which approach performs better.
 
 I put all implementations in a single source file; calls to each implementation are guarded with a particular preprocessor directive in the source to avoid parsing command line flags in order to keep things simple.
 
@@ -73,13 +71,13 @@ Let's put the code above to the test and calculate `fib(42)`:
 > hyperfine oif.exe
 
 Benchmark 1: oif.exe
-  Time (mean ± σ):     817.2 ms ±   6.4 ms    [User: 593.8 ms, System: 4.6 ms]
-  Range (min … max):   808.6 ms … 828.9 ms    10 runs
+  Time (mean ± σ):     803.2 ms ±   4.7 ms    [User: 591.9 ms, System: 1.5 ms]
+  Range (min … max):   797.1 ms … 814.2 ms    10 runs
 ```
 
 ## World's simplest interpreter
 
-As I mentioned earliear, the venerable *tree-walking interpreter* is the simplest and arguably easiest to implement type of evaluator. 
+As I mentioned earlier, the venerable *tree-walking interpreter* is the simplest and arguably easiest to implement type of evaluator. 
 
 A quick recap on how it works:
 * The interpreter operates on a *tree* consisting of *nodes*, which may or may not have child nodes
@@ -91,7 +89,7 @@ In the scope of this post, I will assume the following:
 * There is no type checking during evaluation
 * There is no memory management
 * There are no other extraneous checks
-* There is only single supported type, unsigned 32-bit integer (`uint32_t`)
+* There is only one supported type, unsigned 32-bit integer (`uint32_t`)
 
 Let's imagine what our `fib()` function would look like if implemented in such an interpreter:
 ```cpp
@@ -140,7 +138,7 @@ struct Node {
 
 There's really not that much to it. It's just a class with a single virtual method `eval()` that accepts a mutable global interpreter state (also known as *context*) - more on that later. 
 
-The `ConstNode` is not that much interesting either - it just evaluates to the value it holds:
+The `ConstNode` is not that interesting either - it just evaluates to the value it holds:
 ```cpp
 struct ConstNode : Node {
     uint32_t value;
@@ -155,7 +153,7 @@ struct ConstNode : Node {
 
 ### Arithmetic, comparison and conditional execution
 
-These are a bit more complex since they have two child nodes which should be recursively evaluated before the value of the node itself can be computed, but these are not terribly complicated either:
+These are a bit more complex since they have two child nodes, which should be recursively evaluated before the value of the node itself can be computed, but these are not terribly complicated either:
 ```cpp
 struct AddNode : Node {
     Node* lhs;
@@ -278,6 +276,10 @@ struct CallNode : Node {
     }
 
     uint32_t eval(Context* ctx) override {
+        if (ctx->stackTop == ctx->kStackSize - 1) {
+            return 0;
+        }
+
         ctx->stack[ctx->stackTop] = arg->eval(ctx);
         ctx->stackTop += 1;
 
@@ -298,15 +300,15 @@ struct CallNode : Node {
 
 Let's unpack what is happening here. 
 
-A `CallNode` represents a unary function call, that is, a call of a function that only takes a single argument. This argument is evaluated and put on the stack, in order for us to be able to access it later when evaluating the function body. Use of the stack will also allow us to create recursive functions.
+A `CallNode` represents a unary function call, that is, a call of a function that only takes a single argument. This argument is evaluated and put on the stack in order for us to be able to access it later when evaluating the function body. Use of the stack will also allow us to create recursive functions.
 
-To evaluate a function we just iterate over the nodes of the function's body and evaluate them sequentially. That would be pretty much it, except we also need to support the return statement and ability to return values from the function.
+To evaluate a function, we just iterate over the nodes of the function's body and evaluate them sequentially. That would be pretty much it, except we also need to support the return statement and ability to return values from the function.
 
 In order to do that, we need two pieces of state: 
 * a flag which indicates that the return statement has been encountered and we need to stop the evaluation and return control to the caller, and
-* a field which holds the value that we should return. 
+* a field that holds the value that we should return. 
   
-We reset the former before exiting to ensure that the subsequent function calls will not return immediately and we use the latter as the actual result of evaluation of the call.
+We reset the former before exiting to ensure that the subsequent function calls will not return immediately, and we use the latter as the actual result of the evaluation of the call.
 
 Let's implement the `ReturnNode`:
 ```cpp
@@ -330,7 +332,7 @@ struct ReturnNode : Node {
 };
 ```
 
-It evaluates the right-hand-side node, puts the result into context and signals that return statement has been encountered.
+It evaluates the right-hand-side node, puts the result into the context, and signals that a return statement has been encountered.
 
 Last, but not least, we need to implement a way to access function arguments:
 ```cpp
@@ -347,16 +349,17 @@ struct ArgNode : Node {
 
 ### What about the context?
 
-Now that we know which state we need to be available for all nodes, we can put it all in a simple neat struct:
+Now that we know which state we need to be available for all nodes, we can put it all in a simple, neat struct.
 ```cpp
 struct Context {
+    const uint32_t kStackSize = 4096;
     bool stopForReturn;
     uint32_t returnValue;
     uint32_t* stack;
     uint32_t stackTop;
 
     Context() 
-        : stopForReturn(false), returnValue(0), stack(new uint32_t[4096]), stackTop(0) {}
+        : stopForReturn(false), returnValue(0), stack(new uint32_t[kStackSize]), stackTop(0) {}
 
     ~Context() {
         delete[] stack;
@@ -412,8 +415,8 @@ Now, let's see how it performs:
 > hyperfine oif.exe
 
 Benchmark 1: oif.exe
-  Time (mean ± σ):     10.022 s ±  1.349 s    [User: 5.452 s, System: 0.009 s]
-  Range (min … max):    8.468 s … 12.096 s    10 runs
+  Time (mean ± σ):     13.570 s ±  1.474 s    [User: 10.661 s, System: 0.025 s]
+  Range (min … max):   11.847 s … 16.103 s    10 runs
 ```
 
 ...Huh. It's an _order of magnitude_ slower than the baseline implementation. As expected, even the simplest tree-walking interpreter is quite slow compared to equivalent C++ code. 
@@ -422,7 +425,7 @@ But don't worry, it will get better.
 
 ## Basic optimization
 
-While this code looks like an absolute minimal implementation, there are still ways to make it even smaller. One way to do this would be to merge, or *fuse*, our small nodes into larger and more specialized nodes to reduce overhead introduced by virtual function calls, among other things.
+While this code looks like an absolute minimal implementation, there are still ways to make it even smaller. One way to do this would be to merge, or *fuse*, our small nodes into larger and more specialised nodes to reduce overhead introduced by virtual function calls, among other things.
 
 Good candidates to fuse would be nodes that take constant arguments. In our case, that would be `LessNode` and `SubNode`. Let's implement fused versions:
 
@@ -496,8 +499,8 @@ That's it, on to benchmarking:
 > hyperfine oif.exe
 
 Benchmark 1: oif.exe
-  Time (mean ± σ):      6.609 s ±  0.015 s    [User: 2.890 s, System: 0.001 s]
-  Range (min … max):    6.584 s …  6.633 s    10 runs
+  Time (mean ± σ):      7.754 s ±  0.052 s    [User: 5.189 s, System: 0.009 s]
+  Range (min … max):    7.703 s …  7.874 s    10 runs
 ```
 
 Implementing this simple optimization makes our interpreter almost **two times faster** than our initial implementation. 
@@ -506,8 +509,7 @@ Implementing this simple optimization makes our interpreter almost **two times f
 
 Continuing this line of thought, let's take it further. What else can we merge or remove? 
 
-We can introduce new, even more specialized nodes - not just *"less-than-constant"* node, but *"argument-less-than-constant"* node, and a similar one for subtraction:
-
+We can introduce new, even more specialised nodes - not just the *"less-than-constant"* node, but the *"argument-less-than-constant"* node, and a similar one for subtraction:
 ```cpp
 struct LessArgConstNode : Node {
     uint32_t constant;
@@ -515,6 +517,9 @@ struct LessArgConstNode : Node {
     LessArgConstNode(uint32_t constant) : constant(constant) {}
 
     uint32_t eval(Context* ctx) override {
+        if (ctx->stackTop == 0) {
+            return 0;
+        }
         return ctx->stack[ctx->stack_top - 1] < constant;
     }
 };
@@ -525,6 +530,9 @@ struct SubArgConstNode : Node {
     SubArgConstNode(uint32_t constant) : constant(constant) {}
 
     uint32_t eval(Context* ctx) override {
+        if (ctx->stackTop == 0) {
+            return 0;
+        }
         return ctx->stack[ctx->stack_top - 1] - constant;
     }
 };
@@ -532,16 +540,15 @@ struct SubArgConstNode : Node {
 
 And this is where we should stop and reconsider what we are doing.
 
-As you can see, we copied the entire implementation of the `ArgNode` into these new node types, just like we did before for `ConstNode`. It may look innocuous at this point, however, this is quite error-prone and will quickly become tedious as more fused node types are introduced.
+As you can see, we copied the entire implementation of the `ArgNode` into these new node types, just like we did before for `ConstNode`. It may look innocent at this point; however, this is quite error-prone and will quickly become tedious as more fused node types are introduced.
 
 Actually, there is a way to remove duplication. We will introduce a new method, `compute(Context* ctx)`, and make sure it is always inlined. We will also express our `eval(Context* ctx)` method in terms of `compute(Context* ctx)`. This way we will always have a single implementation for a single node type, which can then be embedded in any other node.
 
 Strictly speaking, we don't want to do this for all nodes (and it barely makes sense to do this for `ConstNode`), but I will still do it this way for the sake of consistency.
 
-One more thing to mention before we proceed is that `compute(Context* ctx)` is non-virtual. This means that we can only use it when we know the exact type of the node on which we call it on. In case of more generic nodes we should still use `eval(Context* ctx)`.
+One more thing to mention before we proceed is that `compute(Context* ctx)` is non-virtual. This means that we can only use it when we know the exact type of the node on which we call it. In case of more generic nodes, we should still use `eval(Context* ctx)`.
 
 This is what updated versions of the nodes look like:
-
 ```cpp
 #if defined(__clang__)
 #define FORCEINLINE __attribute__((always_inline))
@@ -571,6 +578,9 @@ struct ArgNode : Node {
     }
 
     uint32_t FORCEINLINE compute(Context* ctx) {
+        if (ctx->stackTop == 0) {
+            return 0;
+        }
         return ctx->stack[ctx->stackTop - 1];
     }
 };
@@ -642,11 +652,11 @@ And we also gained a bit of performance:
 > hyperfine oif.exe
 
 Benchmark 1: oif.exe
-  Time (mean ± σ):      5.412 s ±  0.067 s    [User: 3.266 s, System: 0.005 s]
-  Range (min … max):    5.353 s …  5.514 s    10 runs
+  Time (mean ± σ):      6.413 s ±  0.024 s    [User: 4.452 s, System: 0.008 s]
+  Range (min … max):    6.364 s …  6.452 s    10 runs
 ```
 
-This shaves another half of a second, nice. But we still can do better.
+This shaves another second and a half, nice. But we still can do better.
 
 ## Simplifying calls
 
@@ -661,7 +671,6 @@ In order to remove it, we will need to do the following:
 While we are at it, we can also remove one `ReturnNode` instance by allowing the `IfNode` to return evaluation results of it branches.
 
 I will implement new versions of the nodes as separate classes so that we will be able to see the old and new implementations side-by-side:
-
 ```cpp
 struct CallAnyNode : Node {
     Node* function;
@@ -675,6 +684,10 @@ struct CallAnyNode : Node {
     }
 
     uint32_t eval(Context* ctx) override {
+        if (ctx->stackTop == ctx->kStackSize - 1) {
+            return 0;
+        }
+
         ctx->stack[ctx->stackTop] = arg->eval(ctx);
         ctx->stackTop += 1;
 
@@ -736,7 +749,7 @@ uint32_t fib(uint32_t n) {
 }
 ```
 
-While our first interpreter was a 1-1 mapping from the C++ source code, this one resembles the actual _compiled_ code - probably, at the very least at one of the stages. Which should give you intuition on what is actually happening here: we are doing the job of an optimizing compiler manually and observe effects of optimizations first-hand.
+While our first interpreter was a 1-1 mapping from the C++ source code, this one resembles the actual _compiled_ code - probably, at the very least at one of the stages. Which should give you intuition on what is actually happening here: we are doing the job of an optimising compiler manually and observe effects of optimisations first-hand.
 
 What about the timings?
 ```shell
@@ -744,16 +757,15 @@ What about the timings?
 > hyperfine oif.exe
 
 Benchmark 1: oif.exe
-  Time (mean ± σ):      3.761 s ±  0.013 s    [User: 1.884 s, System: 0.005 s]
-  Range (min … max):    3.743 s …  3.783 s    10 runs
+  Time (mean ± σ):      4.528 s ±  0.014 s    [User: 3.470 s, System: 0.006 s]
+  Range (min … max):    4.498 s …  4.551 s    10 runs
 ```
 
-And another second and a half gone. 
+And another two seconds gone. 
 
-This will be the last version of the interpreter within the scope of this post. We went from 10.02s to 3.76s - the final version is **2.66 times faster** than our initial implementation and _only_ 4.6 times slower than the baseline C++ version.
+This will be the last version of the interpreter within the scope of this post. We went from 13.5s to 4.5s - the final version is **3 times faster** than our initial implementation and _only_ 5.64 times slower than the baseline C++ version.
 
 To put things in perspective, let's add some _real_ interpreter results:
-
 ```shell
 > node --version
 v18.18.0
@@ -796,7 +808,7 @@ Benchmark 1: luajit -joff fib.lua
 Some thoughts on these results:
 * Both JITs leave everything else in the dust, with LuaJIT 2 being 1.7x faster than V8
 * As expected, _real_ interpreters are much, much slower than our toy interpreter
-* But I did not expect Ruby being almost 3 times faster than Python!
+* But I did not expect Ruby to be almost 3 times faster than Python!
 * As a pleasant surprise, our toy interpreter manages to hold its own against LuaJIT in interpreter mode
 
 ## What about clang?
@@ -841,43 +853,43 @@ Benchmark 1: oif-clang.exe
   Range (min … max):    4.968 s …  5.074 s    10 runs
 ```
 
-I am not sure what to make of this, except that I certainly did not expect these results. The baseline and the first, unoptimized version of the interpreter are a bit faster, but all of the optimizations have far less of an effect. I _definitely_ need to dig into this, but this post is already long as it is. 
+I am not sure what to make of this, except that I certainly did not expect these results. The baseline and the first, unoptimised version of the interpreter are a bit faster, but all of the optimisations have far less of an effect. I _definitely_ need to dig into this, but this post is already long as it is.  
 
 ## Drawing the rest of the eval
 
 I handwaved away a lot of the important parts of a _real_ interpreter at the very beginning of this post, so let's take a step back.
 
-First and foremost, the optimized representation is more like a bytecode - you probably should not attempt to parse directly into it. Instead, you will need an optimizing pass (or rather _optimizing passes_) that will transform your AST into this representation. Just like an optimizing compiler would do.
+First and foremost, the optimised representation is more like a bytecode - you probably should not attempt to parse directly into it. Instead, you will need an optimising pass (or rather _optimising passes_) that will transform your AST into this representation. Just like an optimising compiler would do.
 
-You also want to be able to work with different types of data, and you want to minimize conversions between these types. _Anything_ not strictly related to evaluation - any type checks, conversions, and allocations - will inevitably affect performance.
+You also want to be able to work with different types of data, and you want to minimise conversions between these types. _Anything_ not strictly related to evaluation - any type checks, conversions, and allocations - will inevitably affect performance.
 
-But you will also need to perform type-checking somewhere, just not at the hot path. This suggests that this approach is best suited for _statically typed_ languages; however, you probably can do something like a tracing JIT where you figure out types for a subtree dynamically during runtime, generate an optimized representation on the fly and use guards to make sure that the types were not changed during execution.
+But you will also need to perform type-checking somewhere, just not at the hot path. This suggests that this approach is best suited for _statically typed_ languages; however, you probably can do something like a tracing JIT where you figure out types for a subtree dynamically during runtime, generate an optimised representation on the fly and use guards to make sure that the types were not changed during execution.
 
-Next, in a real interpreter you would probably like to call functions with more than one argument. And you _will_ need a function wrapper for functions that are not as simple as Fibonacci function. Passing arguments will also take time.
+Next, in a real interpreter, you would probably like to call functions with more than one argument. And you _will_ need a function wrapper for functions that are not as simple as Fibonacci function. Passing arguments will also take time.
 
-All in all, this post only covers a very tiny, very specific part of what an interpreter should do, but I hope it manages to explain how tree-walking interpeters can be made much faster and that it will still be useful to someone.
+All in all, this post only covers a very tiny, very specific part of what an interpreter should do, but I hope it manages to explain how tree-walking interpreters can be made much faster and that it will still be useful to someone.
 
 ## Conclusion
 
-Even something as simple as a tree-walking interpreter can sometimes be made even simpler, for surprising results.
+Even something as simple as a tree-walking interpreter can sometimes be made even simpler for surprising results.
 
 My thanks go to Anton Yudintsev and Boris Batkin for daScript, the implementation of which served as inspiration for this post. I should note that there is a whole bunch of tricks the daScript interpreter uses besides fusion, which I hope to explore in detail in posts to come.
 
-You may find the entire source code for the interpreter [here](https://github.com/ergeysay/optimizing-interpreters-fusion).
+You may find the entire source code for the interpreter [here](https://github.com/ergeysay/optimising-interpreters-fusion).
 
 Thank you for staying with me until the very end! See you, and stay tuned!
 
 ## Appendix: methodology of benchmarks
 
-I won't go into much detail on perils of benchmarking in 2024, but know that there [are](https://github.com/google/benchmark/blob/1e96bb0ab5e758861f5bbbd4edbd0a8d9a2a7cae/docs/reducing_variance.md) [many](https://github.com/sharkdp/hyperfine/issues/239). Contrary to popular belief, implementing a benchmark that measures what you think it is measuring is a feat in and of itself, and is a proper rabbit hole - far too deep than I wanted to take you today. Perhaps I will write another post on this topic sometime.
+I won't go into much detail on the perils of benchmarking in 2024, but know that there [are](https://github.com/google/benchmark/blob/1e96bb0ab5e758861f5bbbd4edbd0a8d9a2a7cae/docs/reducing_variance.md) [many](https://github.com/sharkdp/hyperfine/issues/239). Contrary to popular belief, implementing a benchmark that measures what you think it is measuring is a feat in and of itself and is a proper rabbit hole - far too deep than I wanted to take you today. Perhaps I will write another post on this topic sometime.
 
 In the scope of this post, however, I have taken it easy. I used [hyperfine](https://github.com/sharkdp/hyperfine) and I tried to make sure that the load of our benchmark is heavy enough to overweigh any start-up costs of any interpreter we are going to use.
 
-In this setup, precise number of milliseconds doesn't really matter, just the _relative_ performance compared to a set baseline.
+In this setup, the precise number of milliseconds doesn't really matter, just the _relative_ performance compared to a set baseline.
 
 The code was compiled using MSVC 2022 cl 19.38.33130 with the following command line flags:
 ```shell
-/permissive- /GS /GL /W3 /Gy /Zc:wchar_t /Zi /Gm- /O2 /sdl /Zc:inline /fp:fast /D "NDEBUG" /WX- /Zc:forScope /Gd /Oi /MD /FC /EHsc /nologo /Ot /Fp
+/permissive- /GS0 /GL /W3 /Gy /Zc:wchar_t /Zi /Gm- /O2 /sdl /Zc:inline /fp:fast /D "NDEBUG" /WX- /Zc:forScope /Gd /Oi /MD /FC /EHsc /nologo /Ot /Fp
 ```
 
 I wrapped this thing in a .bat file for convenience, which you can find with the rest of the source.
