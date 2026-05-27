@@ -1,0 +1,21 @@
+baseURL = "https://ergeysay.github.io/"
+title = "Of Rabbits and Holes"
+theme = "hugo-bearcub"
+copyright = ""
+defaultContentLanguage = "en"
+
+[markup]
+  [markup.highlight]
+    noClasses = false
+  [markup.goldmark.renderer]
+    unsafe = true
+
+[params]
+  description = ""
+  github = "ergeysay"
+
+[menu]
+  [[menu.main]]
+    name = "About"
+    url = "/about/"
+    weight = 10

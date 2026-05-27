@@ -1,7 +1,5 @@
 ---
-layout: page
-title: About
-permalink: /about/
+title: "About"
 ---
 
 Hi there! I am Sergei Kharitonov, a web developer by day and a hobbyist game developer by night.
