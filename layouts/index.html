@@ -1,0 +1,21 @@
+{{ define "main" }}
+{{ .Content }}
+<content>
+  <ul class="blog-posts">
+    {{ range site.RegularPages.ByDate.Reverse }}
+    {{ if eq .Section "blog" }}
+    <li>
+      <span>
+        <i>
+          <time datetime='{{ .Date.Format "2006-01-02" }}' pubdate>
+            {{ .Date.Format (default "2006-01-02" .Site.Params.dateFormat) }}
+          </time>
+        </i>
+      </span>
+      <a href="{{ .RelPermalink }}">{{ .Title }}</a>
+    </li>
+    {{ end }}
+    {{ end }}
+  </ul>
+</content>
+{{ end }}
