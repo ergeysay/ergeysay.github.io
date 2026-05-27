@@ -13,9 +13,14 @@ defaultContentLanguage = "en"
 [params]
   description = ""
   github = "ergeysay"
+  madeWith = "[GitHub](https://github.com/ergeysay) | Made with [Hugo](https://gohugo.io/) and [ᕦʕ •ᴥ•ʔᕤ Bear Cub](https://github.com/clente/hugo-bearcub)"
 
 [menu]
   [[menu.main]]
     name = "About"
     url = "/about/"
     weight = 10
+
+[permalinks]
+  [permalinks.page]
+    blog = "/:contentbasename.html"
