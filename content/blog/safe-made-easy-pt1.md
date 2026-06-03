@@ -223,4 +223,4 @@ Here's the thing, though: you have to uphold these rules for safety _anyway_ - i
 
 So this is the end of the beginning, and there's much, much more left to cover.
 
-In the next post I will generalize this approach to aggregates such as records and arrays, and introduce references to allow sharing values without transferring ownership.
+In the next post (**UPD**: available [here]({{< relref "safe-made-easy-pt2.md" >}})) I will generalize this approach to aggregates such as records and arrays, and introduce references to allow sharing values without transferring ownership.
