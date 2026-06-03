@@ -2,6 +2,7 @@
 title: "Safe Made Easy Pt.1: Single Ownership is (Not) Optional"
 date: 2026-05-26
 categories: ["plt"]
+description: "A flow-sensitive typing approach to memory safety: single ownership, exactly-once destruction, and automatic Option<T> promotion when liveness cannot be proven."
 url: /safe-made-easy-pt1.html
 ---
 
